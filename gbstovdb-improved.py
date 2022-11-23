@@ -56,10 +56,7 @@ def convert_and_interpolate_to_cartesian(temp, theta, angle, pol_x, pol_z):
     result_temp = griddata(coords_cart, df_temp.values.ravel(), (grid_x, grid_y, grid_z), method='nearest')
     result_theta = griddata(coords_cart, df_theta.values.ravel(), (grid_x, grid_y, grid_z), method='nearest')
 
-    result_pressure = result_theta*result_temp
-
-
-    return result_temp, result_theta, result_pressure
+    return result_temp, result_theta
 
 filename = sys.argv[1]
 file_noext = pathlib.Path(filename).stem
@@ -78,8 +75,11 @@ pol_x = np.array(var3d['temperature']['coord1'])
 pol_z = np.array(var3d['temperature']['coord2'])
 
 # do the deed
-result_temp, result_theta, result_pressure = convert_and_interpolate_to_cartesian(temp, theta, angle, pol_x, pol_z)
+result_temp, result_theta = convert_and_interpolate_to_cartesian(temp, theta, angle, pol_x, pol_z)
 
+density = np.exp(result_temp)
+temperature = np.exp(result_theta)
+pressure = density * temperature
 
 r_size = var3d['theta']['coord1'].shape[0]
 z_size = var3d['theta']['coord2'].shape[0]
@@ -142,9 +142,9 @@ grid_offset = (
 )
 
 # VDB
-grid_temperature.copyFromArray(result_temp, grid_offset)
-grid_density.copyFromArray(result_theta, grid_offset)
-grid_pressure.copyFromArray(result_pressure, grid_offset)
+grid_temperature.copyFromArray(temperature, grid_offset)
+grid_density.copyFromArray(density, grid_offset)
+grid_pressure.copyFromArray(pressure, grid_offset)
 
 # add parameters
 grid_temperature.name = 'temperature'
