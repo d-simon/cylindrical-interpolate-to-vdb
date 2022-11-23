@@ -63,7 +63,7 @@ def convert_and_interpolate_to_cartesian(temp, theta, angle, pol_x, pol_z):
 
 filename = sys.argv[1]
 file_noext = pathlib.Path(filename).stem
-frame_str = '000517'
+frame_str = sys.argv[2]
 
 lod = 1
 
