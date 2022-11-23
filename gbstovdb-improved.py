@@ -53,14 +53,14 @@ def convert_and_interpolate_to_cartesian(temp, theta, angle, pol_x, pol_z):
     # Define Evaluation grid
     grid_x, grid_y, grid_z = np.mgrid[-750:750:300j, -750:750:300j, 0:900:225j]
     # Interpolate NaNs in 3d
-    result_temp = griddata(coords_cart, df_temp.values.ravel(), (grid_x, grid_y, grid_z), method='nearest')
-    result_theta = griddata(coords_cart, df_theta.values.ravel(), (grid_x, grid_y, grid_z), method='nearest')
+    result_temp = griddata(coords_cart, df_temp.values.ravel(), (grid_x, grid_y, grid_z), method='nearest', fill_value=0.0)
+    result_theta = griddata(coords_cart, df_theta.values.ravel(), (grid_x, grid_y, grid_z), method='nearest', fill_value=0.0)
 
     return result_temp, result_theta
 
 filename = sys.argv[1]
 file_noext = pathlib.Path(filename).stem
-frame_str = sys.argv[2]
+# specific_frame_str = sys.argv[2]
 
 lod = 1
 
@@ -68,18 +68,9 @@ f = h5py.File(filename, 'r')
 data = f['data']
 var3d = data['var3d']
 
-theta = np.array(var3d['theta'][frame_str])
-temp = np.array(var3d['temperature'][frame_str])
 angle = np.array(var3d['temperature']['coord3'])
 pol_x = np.array(var3d['temperature']['coord1'])
 pol_z = np.array(var3d['temperature']['coord2'])
-
-# do the deed
-result_temp, result_theta = convert_and_interpolate_to_cartesian(temp, theta, angle, pol_x, pol_z)
-
-density = np.exp(result_temp)
-temperature = np.exp(result_theta)
-pressure = density * temperature
 
 r_size = var3d['theta']['coord1'].shape[0]
 z_size = var3d['theta']['coord2'].shape[0]
@@ -90,7 +81,6 @@ rmax = var3d['theta']['coord1'][r_size-1]
 zmin = var3d['theta']['coord2'][0]
 zmax = var3d['theta']['coord2'][z_size-1]
 
-print('frame', frame_str)
 print('rmin', rmin)
 print('rmax', rmax)
 print('zmin', zmin)
@@ -127,29 +117,46 @@ voxelsize = realsize / xdim_len
 print('realsize', realsize)
 print('voxelsize', voxelsize)
 
-grid_temperature = vdb.FloatGrid()
-grid_pressure = vdb.FloatGrid()
-grid_density = vdb.FloatGrid()
-grid_density.transform = vdb.createLinearTransform(voxelSize=voxelsize)
-grid_pressure.transform = vdb.createLinearTransform(voxelSize=voxelsize)
-grid_temperature.transform = vdb.createLinearTransform(voxelSize=voxelsize)
+keys = var3d['temperature'].keys()
+frames = [x for x in keys if all(y not in x for y in ['coord'])]
+print('frames', frames)
 
-# calculate grid offset for vdb
-grid_offset = (
-    round(xdim_min/(xdim_max-xdim_min)*xdim_len),
-    round(ydim_min/(ydim_max-ydim_min)*ydim_len),
-    round(zdim_min/(zdim_max-zdim_min)*zdim_len),
-)
+for frame_str in frames:
 
-# VDB
-grid_temperature.copyFromArray(temperature, grid_offset)
-grid_density.copyFromArray(density, grid_offset)
-grid_pressure.copyFromArray(pressure, grid_offset)
+    theta = np.array(var3d['theta'][frame_str])
+    temp = np.array(var3d['temperature'][frame_str])
 
-# add parameters
-grid_temperature.name = 'temperature'
-grid_density.name = 'density'
-grid_pressure.name = 'pressure'
+    # do the deed
+    result_temp, result_theta = convert_and_interpolate_to_cartesian(temp, theta, angle, pol_x, pol_z)
 
-# write to file
-vdb.write('output/' + file_noext + '-' + frame_str + '.vdb', grids=[grid_temperature, grid_density, grid_pressure])
+    density = np.exp(result_temp)
+    temperature = np.exp(result_theta)
+    pressure = density * temperature
+
+    # vdb
+    grid_temperature = vdb.FloatGrid()
+    grid_pressure = vdb.FloatGrid()
+    grid_density = vdb.FloatGrid()
+    grid_density.transform = vdb.createLinearTransform(voxelSize=voxelsize)
+    grid_pressure.transform = vdb.createLinearTransform(voxelSize=voxelsize)
+    grid_temperature.transform = vdb.createLinearTransform(voxelSize=voxelsize)
+
+    # calculate grid offset for vdb
+    grid_offset = (
+        round(xdim_min/(xdim_max-xdim_min)*xdim_len),
+        round(ydim_min/(ydim_max-ydim_min)*ydim_len),
+        round(zdim_min/(zdim_max-zdim_min)*zdim_len),
+    )
+
+    # VDB
+    grid_temperature.copyFromArray(temperature, grid_offset)
+    grid_density.copyFromArray(density, grid_offset)
+    grid_pressure.copyFromArray(pressure, grid_offset)
+
+    # add parameters
+    grid_temperature.name = 'temperature'
+    grid_density.name = 'density'
+    grid_pressure.name = 'pressure'
+
+    # write to file
+    vdb.write('output/' + file_noext + '-' + frame_str + '.vdb', grids=[grid_temperature, grid_density, grid_pressure])
