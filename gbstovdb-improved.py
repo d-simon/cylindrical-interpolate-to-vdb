@@ -6,6 +6,7 @@ import sys
 from scipy.interpolate import griddata
 import pathlib
 import pyopenvdb as vdb
+import time
 
 def pol_to_cart(angle_pol, x_pol, z_pol):
     '''
@@ -31,19 +32,19 @@ def ext_interpol(df_data, new_index):
     return df_data
 
 
-def convert_and_interpolate_to_cartesian(temp, theta, angle, pol_x, pol_z):
+def convert_and_interpolate_to_cartesian(temp, theta, angle, pol_x, pol_z, xdim_len, ydim_len, zdim_len, xdim_min, xdim_max, ydim_min, ydim_max, zdim_min, zdim_max):
     df_temp = pd.DataFrame(index=angle, data=temp.reshape((80, -1)))
     df_theta = pd.DataFrame(index=angle, data=theta.reshape((80, -1)))
 
     # create new index vector --> add new interpolation points (at the moment double)
     angle_ext = np.append(angle, angle + np.diff(np.append(angle, 2 * np.pi)) / 2)
 
-    df_temp = ext_interpol(df_temp, angle_ext)
-    df_theta = ext_interpol(df_theta, angle_ext)
+    # df_temp = ext_interpol(df_temp, angle_ext)
+    # df_theta = ext_interpol(df_theta, angle_ext)
     # df_pressure = df_theta * df_temp
 
     # Create vector with anglexz coordinates
-    coords_pol = list(itertools.product(angle_ext, pol_x, pol_z))
+    coords_pol = list(itertools.product(angle, pol_x, pol_z))
     v_angle, v_x, v_z = np.array(list(map(list, zip(*coords_pol))))
 
     # Create Vector with xyz target coordinates for all anglexz coordinates
@@ -51,7 +52,7 @@ def convert_and_interpolate_to_cartesian(temp, theta, angle, pol_x, pol_z):
     coords_cart = np.array([x_cart, y_cart, z_cart]).T
 
     # Define Evaluation grid
-    grid_x, grid_y, grid_z = np.mgrid[-750:750:300j, -750:750:300j, 0:900:225j]
+    grid_x, grid_y, grid_z = np.mgrid[xdim_min:xdim_max:xdim_len*1j, ydim_min:ydim_max:ydim_len*1j, zdim_min:zdim_max:zdim_len*1j]
     # Interpolate NaNs in 3d
     result_temp = griddata(coords_cart, df_temp.values.ravel(), (grid_x, grid_y, grid_z), method='nearest', fill_value=0.0)
     result_theta = griddata(coords_cart, df_theta.values.ravel(), (grid_x, grid_y, grid_z), method='nearest', fill_value=0.0)
@@ -59,10 +60,15 @@ def convert_and_interpolate_to_cartesian(temp, theta, angle, pol_x, pol_z):
     return result_temp, result_theta
 
 filename = sys.argv[1]
-file_noext = pathlib.Path(filename).stem
+output_dirname = sys.argv[2]
+# pathlib.Path(filename).stem
 # specific_frame_str = sys.argv[2]
 
-lod = 1
+start_time = time.time()
+# make directory
+pathlib.Path('output/' + output_dirname  + '/').mkdir(parents=True, exist_ok=True)
+
+lod = 1 # level of detail
 
 f = h5py.File(filename, 'r')
 data = f['data']
@@ -119,7 +125,10 @@ print('voxelsize', voxelsize)
 
 keys = var3d['temperature'].keys()
 frames = [x for x in keys if all(y not in x for y in ['coord'])]
+# frames = ['000833', '000834']
 print('frames', frames)
+
+print(f"Starting execution after {(time.time() - start_time)} seconds")
 
 for frame_str in frames:
 
@@ -127,7 +136,8 @@ for frame_str in frames:
     temp = np.array(var3d['temperature'][frame_str])
 
     # do the deed
-    result_temp, result_theta = convert_and_interpolate_to_cartesian(temp, theta, angle, pol_x, pol_z)
+    result_temp, result_theta = convert_and_interpolate_to_cartesian(
+        temp, theta, angle, pol_x, pol_z, xdim_len, ydim_len, zdim_len, xdim_min, xdim_max, ydim_min, ydim_max, zdim_min, zdim_max)
 
     density = np.exp(result_temp)
     temperature = np.exp(result_theta)
@@ -159,4 +169,9 @@ for frame_str in frames:
     grid_pressure.name = 'pressure'
 
     # write to file
-    vdb.write('output/' + file_noext + '-' + frame_str + '.vdb', grids=[grid_temperature, grid_density, grid_pressure])
+    vdb.write('output/' + output_dirname  + '/' + frame_str + '.vdb', grids=[grid_temperature, grid_density, grid_pressure])
+
+    print(f"Writing frame {frame_str} after {(time.time() - start_time) / 60} minutes")
+
+print("---")
+print(f"Finished after total {(time.time() - start_time) / 60} minutes")
